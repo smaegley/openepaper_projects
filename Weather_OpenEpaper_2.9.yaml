@@ -1,0 +1,152 @@
+service: open_epaper_link.drawcustom
+data:
+  background: white
+  rotate: 0
+  payload: >
+    {% set ns = namespace(text_list=[], conditions_str='',
+    most_common_condition='', highest_count=0, hour = 0, data_index = 0, iterate
+    = [0,]) %}
+
+    {% set forecast = state_attr('weather.openweathermap', 'forecast') %}
+
+    {% set ns.hour = as_timestamp(forecast[0].datetime) | timestamp_custom('%H')
+    | int %}
+
+    {% if ns.data_index <= 39 %}
+      {% for day in range(0,6) %}
+        {% for day_part in range(ns.hour,24,3) %}
+          {% if day_part == 2 %}
+            {% set ns.iterate  = ns.iterate + [ns.data_index] %}
+          {% endif %}
+          {#{ "day: " ~ day ~ "| day_part: "~ day_part ~ "| data_index: " ~ ns.data_index}#}
+          {% if ns.data_index == 39 %}
+            {% break %}
+          {% endif %}
+          {% set ns.data_index = ns.data_index + 1 %}
+        {% endfor %}
+        {% set ns.hour = 2 %}
+      {% endfor %}
+    {% endif %}
+
+    {% for day in ns.iterate %}
+      {% if day == 0 %}
+        {% set day_data = forecast[0:5] %}
+      {% else %}
+        {% set day_data = forecast[day:day+8] %}
+        {#{day_data}#}
+      {% endif %}
+      {% set max_temp = day_data | map(attribute='temperature') | max %}
+      {% set min_temp = day_data | map(attribute='temperature') | min %}     
+      {% set avg_precipitation_probability = int(day_data | map(attribute='precipitation_probability') | sum) / day_data  | length%}
+        {# Reset conditions_str for each day #}
+      {% set ns.conditions_str = '' %}
+      {% for entry in day_data %}
+        {% set ns.conditions_str = ns.conditions_str ~ ',' ~ entry.condition %}
+      {% endfor %}       
+      {# Reset the highest_count for each day #}
+      {% set ns.highest_count = 0 %}
+      {% set ns.most_common_condition = '' %}
+      {% for condition in ns.conditions_str.split(',') %}
+        {% if condition %}
+          {% set current_count = ns.conditions_str.split(condition) | length - 1 %}
+            {% if current_count > ns.highest_count %}
+            {% set ns.highest_count = current_count %}
+            {% set ns.most_common_condition = condition %}
+            {% endif %}
+        {% endif %}
+      {% endfor %}
+
+    {% set mapper =
+          {'clear-day': 'sunny',
+           'clear-night': 'night',
+           'sunny': 'sunny',
+           'rain': 'rainy',
+           'snow': 'snowy',
+           'snowy': 'snowy',
+           'wind': 'windy',
+           'fog': 'fog',
+           'cloudy': 'cloudy',
+           'partlycloudy': 'partly-cloudy',
+           'partly-cloudy-day': 'partly-cloudy',
+           'partly-cloudy-night': 'night-partly-cloudy',
+           'hail': 'hail',
+           'rainy': 'rainy',
+           'snowy-rainy': 'snowy-rainy',
+           'thunderstorm': 'lightning',
+           'tornado': 'hurricane'} %}
+    {% set weather = mapper[ns.most_common_condition] if
+    ns.most_common_condition in mapper else 'sunny-alert' %}
+
+    {% set weather_icon = 'weather-' + weather %}
+
+
+    {% set ns.text_list = ns.text_list + 
+
+    [{ "type": "text",  
+      "value": as_timestamp((state_attr('weather.openweathermap', 'forecast')[day].datetime)) | timestamp_custom('%a'), 
+      "font": "ppb.ttf",
+      "x": 12 + (50*(loop.index - 1)) | int,
+      "y": 30, "size": 12,
+      "color": "red"} ] +
+    [{ "type": "text",  
+      "value": max_temp ~ "°", 
+      "font": "ppb.ttf",
+      "x": 12 + (50*(loop.index - 1)) | int,
+      "y": 50, "size": 14,
+      "color": "black"} ] +
+    [{ "type": "icon",  
+      "value": weather_icon, 
+      "font": "ppb.ttf",
+      "x": 12 + (50*(loop.index - 1)) | int,
+      "y": 65, "size": 25,
+      "color": "red"} ] +
+    [{ "type": "text",  
+      "value": avg_precipitation_probability ~ "%", 
+      "font": "ppb.ttf",
+      "x": 12 + (50*(loop.index - 1)) |int,
+      "y": 90, "size": 12,
+      "color": "black"} ]  +
+    [{ "type": "text",  
+      "value": min_temp ~ "°", 
+      "font": "ppb.ttf",
+      "x": 12 + (50*(loop.index - 1)) | int,
+      "y": 110, "size": 14,
+      "color": "black"} ] +
+    [{"type": "line",
+      "x_start": 55 + (50*(loop.index - 1)) | int,
+      "x_end": 55 + (50*(loop.index - 1)) | int,
+      "y_start": 40,
+      "y_end": 128,
+      "width": 1,
+      "fill": "red"
+      }]
+      %}
+    {% endfor %}
+
+    {% set ns.text_list = ns.text_list +  
+
+    [{ "type": "line",
+      "x_start": 0,
+      "x_end": 296,
+      "y_start": 20,
+      "y_end": 20,
+      "y_padding": 5,
+      "width": 2,
+      "fill": "red"},
+      {"type": "text",
+        "value": "Temp: " ~ states('sensor.kcobroom119_temp') | round(1) ~ "°"
+        ~ " Humid: " ~ states('sensor.kcobroom119_humidity') | round(0) ~  "%"
+        ~ " Wind: " ~ states('sensor.average_10_min_wind_speed') | replace("unknown",0)
+        ~ as_timestamp(states('sensor.date_time_iso')) | timestamp_custom(' - %H:%M'),
+        "font": "ppb.ttf",
+        "x": 3,
+        "y": 5,
+        "size": 12,
+        "color": "black"
+      }
+      ]
+      %}
+    {{ ns.text_list }}
+target:
+  entity_id: >-
+    open_epaper_link.[YOUR EPAPER MAC]
